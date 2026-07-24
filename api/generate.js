@@ -104,8 +104,7 @@ module.exports = async (req, res) => {
           temperature: 0.6,
           maxOutputTokens: 8192,
           responseMimeType: 'application/json',
-          responseSchema: RESPONSE_SCHEMA,
-          thinkingConfig: { thinkingBudget: 0 }
+          responseSchema: RESPONSE_SCHEMA
         }
       })
     });
@@ -121,6 +120,11 @@ module.exports = async (req, res) => {
       // 404 dari Gemini biasanya berarti nama model sudah tidak berlaku lagi (Google sering mengganti/mempensiunkan model).
       if (geminiRes.status === 404) {
         res.status(502).json({ error: 'Model AI yang dipakai sudah tidak tersedia lagi dari Google. Pengelola aplikasi perlu memperbarui GEMINI_MODEL di api/generate.js.' });
+        return;
+      }
+      // 400 biasanya berarti ada parameter permintaan yang tidak/tidak-lagi didukung oleh model ini.
+      if (geminiRes.status === 400) {
+        res.status(502).json({ error: 'Permintaan ditolak Google (format tidak didukung model saat ini). Pengelola aplikasi perlu memeriksa parameter di api/generate.js. Detail: ' + JSON.stringify(data) });
         return;
       }
       res.status(geminiRes.status).json({ error: 'Gemini API error: ' + JSON.stringify(data) });
