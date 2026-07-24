@@ -88,12 +88,21 @@ spesifik untuk project Anda).
 tengah malam waktu Pasifik AS (siang hari WIB berikutnya).
 
 **Kalau kuota mulai sering habis** (tandanya aplikasi makin bermanfaat dan makin
-banyak dipakai — kabar baik!), dua pilihan tanpa mengubah kode:
-1. Ganti `GEMINI_MODEL` di `api/generate.js` dari `'gemini-2.5-flash'` menjadi
-   `'gemini-2.5-flash-lite'` — kuota harian jauh lebih besar, kualitas sedikit lebih sederhana.
+banyak dipakai — kabar baik!), atau kalau suatu saat muncul pesan
+*"Model AI yang dipakai sudah tidak tersedia lagi dari Google..."* (Google memang
+sering mengganti/mempensiunkan model), dua pilihan tanpa mengubah banyak kode:
+1. Buka `api/generate.js`, ganti nilai `GEMINI_MODEL` — misalnya ke
+   `'gemini-flash-lite-latest'` (kuota harian jauh lebih besar, kualitas sedikit
+   lebih sederhana) — lalu unggah ulang ke Vercel.
 2. Aktifkan billing di Google AI Studio — harga Gemini Flash di luar kuota gratis
    termasuk yang termurah di pasaran (jauh lebih murah dari Claude atau GPT), jadi
    kalaupun suatu saat perlu berbayar, biayanya tetap sangat kecil dibanding trafiknya.
+
+> Kode ini sengaja memakai alias `gemini-flash-latest` (bukan versi statis seperti
+> `gemini-2.5-flash`) karena Google terus memensiunkan versi lama dan meluncurkan
+> versi baru. Alias ini otomatis diarahkan Google ke model Flash terbaru yang masih
+> tersedia, jadi kemungkinan besar tidak akan mengalami error 404 "model tidak
+> tersedia" lagi di kemudian hari.
 
 ## Catatan Privasi
 
