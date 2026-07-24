@@ -4,10 +4,11 @@
 // bernama GEMINI_API_KEY di dashboard Vercel (Project Settings → Environment Variables).
 // Dapatkan API key gratis di https://aistudio.google.com/apikey (tanpa kartu kredit).
 
-// Model: gemini-2.5-flash — keseimbangan kualitas & kuota gratis.
-// Kalau trafik ramai dan sering kena batas harian, ganti ke 'gemini-2.5-flash-lite'
-// (kuota harian lebih besar, kualitas sedikit lebih sederhana).
-const GEMINI_MODEL = 'gemini-2.5-flash';
+// Model: gemini-flash-latest — alias resmi Google yang OTOMATIS diarahkan ke
+// model Flash terbaru yang masih tersedia untuk tingkatan gratis. Sengaja pakai
+// alias ini (bukan versi statis seperti 'gemini-2.5-flash') supaya kode ini tidak
+// perlu diubah lagi setiap kali Google memensiunkan versi model tertentu.
+const GEMINI_MODEL = 'gemini-flash-latest';
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL + ':generateContent';
 
 const SYSTEM_PROMPT = [
@@ -114,6 +115,11 @@ module.exports = async (req, res) => {
       // 429 = kena batas kuota gratis (permintaan per menit/hari) — beri pesan yang jelas untuk pengguna.
       if (geminiRes.status === 429) {
         res.status(429).json({ error: 'Sedang banyak yang memakai layanan gratis ini. Coba lagi dalam beberapa menit.' });
+        return;
+      }
+      // 404 dari Gemini biasanya berarti nama model sudah tidak berlaku lagi (Google sering mengganti/mempensiunkan model).
+      if (geminiRes.status === 404) {
+        res.status(502).json({ error: 'Model AI yang dipakai sudah tidak tersedia lagi dari Google. Pengelola aplikasi perlu memperbarui GEMINI_MODEL di api/generate.js.' });
         return;
       }
       res.status(geminiRes.status).json({ error: 'Gemini API error: ' + JSON.stringify(data) });
