@@ -102,9 +102,10 @@ module.exports = async (req, res) => {
         systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
         generationConfig: {
           temperature: 0.6,
-          maxOutputTokens: 2048,
+          maxOutputTokens: 8192,
           responseMimeType: 'application/json',
-          responseSchema: RESPONSE_SCHEMA
+          responseSchema: RESPONSE_SCHEMA,
+          thinkingConfig: { thinkingBudget: 0 }
         }
       })
     });
@@ -134,7 +135,18 @@ module.exports = async (req, res) => {
       return;
     }
 
-    const hasil = JSON.parse(text);
+    if (candidate.finishReason === 'MAX_TOKENS') {
+      res.status(502).json({ error: 'Naskah sumber terlalu panjang sehingga jawaban AI terpotong. Coba persingkat naskahnya, lalu proses lagi.' });
+      return;
+    }
+
+    let hasil;
+    try {
+      hasil = JSON.parse(text);
+    } catch (parseErr) {
+      res.status(502).json({ error: 'Jawaban AI terpotong atau tidak lengkap. Coba tekan tombol proses sekali lagi, atau persingkat naskah sumbernya.' });
+      return;
+    }
 
     if (!hasil.sederhana || !hasil.standar || !hasil.pengayaan) {
       res.status(502).json({ error: 'Jawaban AI tidak lengkap (ada level yang hilang).' });
