@@ -90,6 +90,10 @@ module.exports = async (req, res) => {
     res.status(400).json({ error: 'Teks narasi minimal 20 karakter.' });
     return;
   }
+  if (teks.length > 3000) {
+    res.status(400).json({ error: 'Teks narasi maksimal 3000 karakter.' });
+    return;
+  }
 
   try {
     const geminiRes = await fetch(GEMINI_URL + '?key=' + apiKey, {
@@ -132,10 +136,24 @@ module.exports = async (req, res) => {
     }
 
     const candidate = data && data.candidates && data.candidates[0];
+
+    // Kasus 1: seluruh permintaan ditolak sebelum sempat diproses (mis. input dianggap tidak pantas).
+    const blockReason = data && data.promptFeedback && data.promptFeedback.blockReason;
+    if (blockReason) {
+      res.status(422).json({ error: 'Naskah ini tidak bisa diproses karena tersaring oleh filter keamanan otomatis Google (kode: ' + blockReason + '). Coba tulis ulang bagian yang mungkin dianggap sensitif, misalnya kalimat yang menyinggung kekerasan, isu tubuh manusia, atau topik dewasa — meski konteksnya materi pelajaran yang sah.' });
+      return;
+    }
+
+    // Kasus 2: permintaan diproses tapi jawabannya dipotong/ditolak filter keamanan di tengah jalan.
+    if (candidate && candidate.finishReason === 'SAFETY') {
+      res.status(422).json({ error: 'Sebagian jawaban AI tersaring oleh filter keamanan otomatis Google. Coba sesuaikan redaksi naskah sumber (biasanya dipicu oleh topik kekerasan, isu tubuh manusia, atau tema dewasa), lalu proses lagi.' });
+      return;
+    }
+
     const text = candidate && candidate.content && candidate.content.parts && candidate.content.parts[0] && candidate.content.parts[0].text;
 
     if (!text) {
-      res.status(502).json({ error: 'Jawaban AI kosong atau diblokir oleh filter keamanan konten.' });
+      res.status(502).json({ error: 'Jawaban AI kosong tanpa keterangan penyebab yang jelas dari Google. Coba proses lagi.' });
       return;
     }
 
