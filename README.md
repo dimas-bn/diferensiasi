@@ -121,3 +121,76 @@ disebutkan secara terbuka kalau ada yang bertanya.
   klik, atau batas jumlah permintaan per pengunjung).
 - Jangan pernah menaruh API key langsung di `index.html` atau file yang bisa diakses
   browser — selalu lewat Environment Variable seperti di atas.
+
+---
+
+## Antisipasi Masalah di Masa Depan
+
+Tiga risiko berikut paling mungkin muncul seiring waktu — bukan karena ada yang salah
+dengan kode, tapi karena sifat layanan gratis pihak ketiga yang terus berubah.
+
+### 1. Google mengubah API Gemini (model, parameter, atau kuota)
+
+**Kenapa ini bisa terjadi:** Gemini masih rutin merilis model baru dan memensiunkan
+model lama — biasanya dalam hitungan bulan, kadang tanpa banyak pemberitahuan. Kita
+sudah mengalami ini beberapa kali: model ditutup untuk akun baru (error 404), dan
+parameter yang sebelumnya valid tiba-tiba ditolak model versi baru (error 400).
+
+**Antisipasi yang sudah dipasang:**
+- Kode memakai alias `gemini-flash-latest` (bukan versi statis) supaya Google otomatis
+  mengarahkan ke model Flash yang masih aktif — mengurangi risiko error 404 "model tidak
+  ditemukan", walau tidak menghapusnya sepenuhnya.
+- Pesan error sekarang dipecah per jenis (404 = model pensiun, 400 = parameter ditolak,
+  429 = kuota habis) sehingga kalau muncul lagi, penyebabnya langsung terlihat dari
+  pesan errornya sendiri, tanpa perlu menebak-nebak.
+
+**Yang perlu Anda lakukan kalau muncul lagi:**
+1. Buka aplikasi, lihat pesan error yang muncul di layar (formatnya sekarang sudah jelas,
+   menyebutkan jenis masalahnya).
+2. Kalau pesannya menyebut "model tidak tersedia" atau "parameter ditolak", kirim
+   screenshot ke saya seperti sebelumnya — biasanya perbaikannya hanya mengubah satu
+   baris di `api/generate.js`.
+3. Sesekali (mis. tiap beberapa bulan), boleh cek
+   [ai.google.dev/gemini-api/docs/changelog](https://ai.google.dev/gemini-api/docs/changelog)
+   untuk melihat ada perubahan besar atau tidak — tidak wajib, tapi membantu antisipasi
+   dini sebelum ada laporan error dari pengguna.
+
+### 2. Naskah tertentu diblokir filter keamanan otomatis Google
+
+**Kenapa ini bisa terjadi:** Gemini punya filter keamanan konten otomatis yang kadang
+terlalu sensitif untuk materi pendidikan yang sah — misalnya materi Biologi tentang
+reproduksi manusia, Sejarah tentang perang/kekerasan, PJOK tentang penyakit tertentu,
+atau materi Agama yang menyinggung topik lintas-keyakinan. Filter ini bekerja di luar
+kendali kode aplikasi — sepenuhnya keputusan otomatis dari sistem Google.
+
+**Antisipasi yang sudah dipasang:** kode sekarang mendeteksi dua bentuk pemblokiran
+(ditolak sebelum diproses, atau jawabannya dipotong di tengah jalan) dan menampilkan
+pesan yang menjelaskan penyebabnya ke pengguna secara langsung, lengkap dengan saran
+untuk menyunting ulang bagian yang mungkin memicunya — tanpa pengguna perlu
+menghubungi Anda dulu untuk tahu apa yang terjadi.
+
+**Yang perlu Anda lakukan kalau ini terjadi:** umumnya tidak ada yang perlu diperbaiki
+di kode — ini keputusan filter Google, bukan bug. Kalau ada guru yang melapor materi
+sah ditolak berulang kali, sarankan menulis ulang kalimat yang kemungkinan memicunya
+dengan istilah yang lebih netral.
+
+### 5. Kuota gratis habis karena trafik ramai
+
+**Kenapa ini bisa terjadi:** semua pengunjung situs berbagi satu kuota gratis yang sama
+(lihat bagian "Batasan Kuota Gratis" di atas). Kalau aplikasi ini menyebar luas — yang
+justru jadi tanda keberhasilan — kemungkinan besar kuota akan lebih sering habis di
+jam-jam sibuk guru menyiapkan bahan ajar.
+
+**Antisipasi yang sudah dipasang:** pesan error khusus (429) sudah ramah pengguna —
+"Sedang banyak yang memakai layanan gratis ini. Coba lagi dalam beberapa menit." —
+bukan error teknis yang membingungkan.
+
+**Yang perlu Anda lakukan kalau ini mulai sering terjadi:**
+1. Cek kuota aktual project Anda di Google AI Studio untuk memastikan ini benar
+   soal kuota, bukan penyebab lain.
+2. Pertimbangkan ganti `GEMINI_MODEL` ke `'gemini-flash-lite-latest'` (kuota harian
+   jauh lebih besar, kualitas sedikit lebih sederhana) sebagai solusi cepat tanpa biaya.
+3. Kalau trafiknya sudah besar dan konsisten, ini saat yang tepat mempertimbangkan
+   opsi berbayar murah (harga Gemini Flash sangat terjangkau) atau skema donasi/sponsor
+   dari komunitas guru yang terbantu — beri tahu saya kalau sampai di titik ini, saya
+   bisa bantu hitung estimasi biayanya berdasarkan trafik aktual Anda.

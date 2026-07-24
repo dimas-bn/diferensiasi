@@ -119,6 +119,21 @@
   textarea{min-height:250px;line-height:1.75;resize:vertical}
   .word-count{font-family:var(--font-mono);font-size:11px;font-weight:700;color:var(--paper-dim);
     text-align:right;margin-top:8px;letter-spacing:.02em}
+  .word-count.warn{color:var(--lvl2)}
+
+  .help-note{margin-top:14px;border-top:1.5px dashed var(--line-strong);padding-top:12px}
+  .help-note summary{cursor:pointer;font-family:var(--font-mono);font-size:11px;font-weight:700;
+    color:var(--paper-dim);text-transform:uppercase;letter-spacing:.06em;list-style:none;
+    display:flex;align-items:center;gap:6px;transition:color .15s}
+  .help-note summary::-webkit-details-marker{display:none}
+  .help-note summary::before{content:'+';font-size:14px;line-height:1;color:var(--lvl2)}
+  .help-note[open] summary::before{content:'–'}
+  .help-note summary:hover{color:var(--paper)}
+  .help-note ul{margin:10px 0 0 0;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:8px}
+  .help-note li{font-family:var(--font-serif);font-size:12.5px;line-height:1.6;color:var(--paper-dim);
+    padding-left:14px;position:relative}
+  .help-note li::before{content:'—';position:absolute;left:0;color:var(--line-strong)}
+  .help-note li b{color:var(--paper);font-style:normal}
 
   /* ---------- Buttons ---------- */
   .btn{font-family:var(--font-mono);cursor:pointer;border:none;font-weight:700;letter-spacing:.04em;
@@ -230,6 +245,14 @@
   .tb-wa:active{transform:scale(.97)}
   .tb-wa svg{width:15px;height:15px}
 
+  .tb-review{grid-column:1 / -1;border-top:1px dashed var(--line);padding:9px 16px;
+    text-align:center;font-family:var(--font-mono);font-size:10px;color:var(--paper-dim);
+    letter-spacing:.02em}
+  .tb-review a{color:var(--paper-dim);text-decoration:underline;text-underline-offset:2px;
+    transition:color .15s}
+  .tb-review a:hover{color:var(--lvl2)}
+  .tb-review svg{width:11px;height:11px;vertical-align:-1px;margin-right:2px}
+
   /* ---------- Toast ---------- */
   .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(14px);
     background:var(--navy-700);color:var(--paper);border:1.5px solid var(--line-strong);
@@ -320,9 +343,9 @@
 
       <div class="field-full">
         <label for="teksInput">Teks Narasi</label>
-        <textarea id="teksInput" placeholder="Tempelkan teks, paragraf, atau artikel singkat di sini…"></textarea>
+        <textarea id="teksInput" maxlength="3000" placeholder="Tempelkan teks, paragraf, atau artikel singkat di sini…"></textarea>
       </div>
-      <div class="word-count" id="wordCountBottom">0 kata · min. 20 karakter</div>
+      <div class="word-count" id="wordCountBottom">0 kata · 0/3000 karakter · min. 20 karakter</div>
 
       <button class="btn btn-gen" id="btnGen">
         <span class="ic" aria-hidden="true">
@@ -335,6 +358,15 @@
         <p class="loading-label" id="loadingText">Mengirim naskah ke AI…</p>
         <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
       </div>
+
+      <details class="help-note">
+        <summary>Kalau proses gagal, kenapa ya?</summary>
+        <ul>
+          <li><b>Sedang ramai pengguna</b> — layanan AI gratis ini kuotanya dipakai bersama. Tunggu beberapa menit lalu coba lagi.</li>
+          <li><b>Naskah bertema sensitif</b> — topik seperti kekerasan atau isu tubuh manusia kadang tertahan filter otomatis Google, walau untuk materi pelajaran yang sah. Coba tulis ulang bagian tersebut.</li>
+          <li><b>Google memperbarui mesin AI-nya</b> — sesekali terjadi di luar kendali aplikasi ini; biasanya pulih sendiri dalam waktu singkat.</li>
+        </ul>
+      </details>
     </section>
 
     <!-- RESULT -->
@@ -425,6 +457,10 @@
         Chat via WhatsApp
       </a>
     </div>
+    <div class="tb-review">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 15 9 22 9.5 17 14.5 18.5 22 12 18 5.5 22 7 14.5 2 9.5 9 9Z"/></svg>
+      Aplikasi ini membantu? <a href="https://g.page/r/CRZT2jOWS46AEBM/review" target="_blank" rel="noopener noreferrer">Beri ulasan singkat di Google Maps</a>
+    </div>
   </div>
 
 </div>
@@ -441,6 +477,8 @@
       progressFill=$('progressFill'), results=$('results'), hero=$('hero'),
       toast=$('toast'), toastMsg=$('toastMsg');
 
+  var MAX_CHARS = 3000;
+
   function countKata(s){return s.trim()===''?0:s.trim().split(/\s+/).length}
 
   function sanitizeText(s){
@@ -454,8 +492,12 @@
   }
   function updateCount(){
     var n=countKata(teksInput.value);
+    var chars=teksInput.value.length;
     wordCount.textContent=n+' kata';
-    wordCountBottom.textContent=n+' kata · min. 20 karakter';
+    wordCountBottom.textContent=n+' kata · '+chars+'/'+MAX_CHARS+' karakter · min. 20 karakter';
+    var near = chars >= MAX_CHARS*0.9;
+    wordCountBottom.classList.toggle('warn', near);
+    wordCount.classList.toggle('warn', near);
   }
 
   teksInput.addEventListener('input',updateCount);
@@ -466,8 +508,14 @@
     var pasted=sanitizeText(clip.getData('text'));
     var start=teksInput.selectionStart, end=teksInput.selectionEnd;
     var val=teksInput.value;
-    teksInput.value=val.slice(0,start)+pasted+val.slice(end);
-    var newPos=start+pasted.length;
+    var combined=val.slice(0,start)+pasted+val.slice(end);
+    var overflow = combined.length > MAX_CHARS;
+    if(overflow){
+      combined = combined.slice(0, MAX_CHARS);
+      showToast('Naskah dipotong otomatis, maksimal '+MAX_CHARS+' karakter');
+    }
+    teksInput.value = combined;
+    var newPos = Math.min(start+pasted.length, MAX_CHARS);
     teksInput.setSelectionRange(newPos,newPos);
     updateCount();
   });
