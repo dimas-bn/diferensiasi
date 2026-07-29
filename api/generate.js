@@ -195,10 +195,13 @@ async function cobaGroq(kelas, mapel, judul, teks) {
     });
     data = await groqRes.json();
   } catch (err) {
-    return { ok: false, retryable: false, status: 500, error: 'Gagal menghubungi Groq: ' + (err.message || err) };
+    return { ok: false, retryable: true, status: 500, error: 'Gagal menghubungi Groq: ' + (err.message || err) };
   }
 
   if (!groqRes.ok) {
+    if (groqRes.status === 429 || groqRes.status >= 500) {
+      return { ok: false, retryable: true, status: groqRes.status, error: 'Groq sedang sibuk/kena batas kuota.' };
+    }
     return { ok: false, retryable: false, status: groqRes.status, error: 'Groq API error: ' + JSON.stringify(data) };
   }
 
@@ -223,6 +226,32 @@ async function cobaGroq(kelas, mapel, judul, teks) {
   return { ok: true, hasil: hasil };
 }
 
+// ---------------------------------------------------------------------------
+// Retry otomatis untuk error sementara.
+// Mengulang fungsi `fn` sampai `percobaanMax` kali TOTAL (percobaan pertama +
+// retry), dengan jeda singkat (backoff) di antaranya. Berhenti lebih awal kalau
+// berhasil, atau kalau errornya bukan jenis yang wajar dicoba ulang (retryable
+// = false) — misalnya diblokir filter keamanan atau naskah terlalu panjang,
+// karena mencoba ulang tidak akan mengubah hasilnya.
+// ---------------------------------------------------------------------------
+function tunggu(ms) {
+  return new Promise(function (resolve) { setTimeout(resolve, ms); });
+}
+
+async function denganRetry(fn, percobaanMax, jedaMs) {
+  let hasilTerakhir;
+  for (let i = 0; i < percobaanMax; i++) {
+    hasilTerakhir = await fn();
+    if (hasilTerakhir.ok || !hasilTerakhir.retryable) {
+      return hasilTerakhir;
+    }
+    if (i < percobaanMax - 1) {
+      await tunggu(jedaMs * (i + 1)); // backoff bertahap: 1x jeda, lalu 2x jeda, dst.
+    }
+  }
+  return hasilTerakhir;
+}
+
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' });
@@ -244,24 +273,32 @@ module.exports = async (req, res) => {
     return;
   }
 
-  const gemini = await cobaGemini(kelas, mapel, judul, teks);
+  // Gemini: coba sampai 3 kali total (1 percobaan awal + 2 retry) kalau gagalnya
+  // karena masalah sementara — jeda 1 detik, lalu 2 detik.
+  const gemini = await denganRetry(function () {
+    return cobaGemini(kelas, mapel, judul, teks);
+  }, 3, 1000);
+
   if (gemini.ok) {
     res.status(200).json(Object.assign({}, gemini.hasil, { _engine: 'gemini' }));
     return;
   }
 
-  // Gemini gagal. Kalau alasannya bukan masalah sementara (mis. filter keamanan,
-  // atau naskah terlalu panjang), langsung sampaikan pesannya apa adanya —
-  // mencoba Groq tidak akan mengubah hasil untuk kasus-kasus ini.
+  // Gemini gagal setelah dicoba ulang. Kalau alasannya bukan masalah sementara
+  // (mis. filter keamanan, atau naskah terlalu panjang), langsung sampaikan
+  // pesannya apa adanya — retry maupun ganti penyedia tidak akan mengubah hasil.
   if (!gemini.retryable) {
     res.status(gemini.status || 502).json({ error: gemini.error });
     return;
   }
 
-  // Gemini gagal karena masalah sementara di sisi Google — diam-diam coba Groq
-  // sebagai cadangan, kalau pengelola sudah memasang GROQ_API_KEY.
+  // Gemini tetap gagal setelah retry — diam-diam coba Groq sebagai cadangan
+  // (juga dengan retry singkat), kalau pengelola sudah memasang GROQ_API_KEY.
   if (process.env.GROQ_API_KEY) {
-    const groq = await cobaGroq(kelas, mapel, judul, teks);
+    const groq = await denganRetry(function () {
+      return cobaGroq(kelas, mapel, judul, teks);
+    }, 2, 1000);
+
     if (groq.ok) {
       res.status(200).json(Object.assign({}, groq.hasil, { _engine: 'groq' }));
       return;
