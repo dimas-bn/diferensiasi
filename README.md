@@ -137,6 +137,24 @@ pengguna langsung diperbarui, naikkan angka versi di `sw.js` (`CACHE_NAME =
 'diferensiasi-shell-v1'` → `'...-v2'`, dst.) — ini memaksa service worker membuang
 cache lama dan mengambil versi baru.
 
+## Fitur Retry Otomatis
+
+Sebelum menyerah dan menampilkan error, aplikasi ini sekarang **mencoba ulang
+sendiri** kalau kegagalannya sifatnya sementara (koneksi sempat putus, server
+Google sedang sibuk sepersekian detik, dsb.):
+- Percobaan ke **Gemini**: sampai 3 kali total, dengan jeda 1 detik lalu 2 detik
+  di antaranya (backoff bertahap — supaya tidak "menyerbu" server yang sedang sibuk).
+- Percobaan ke **Groq** (kalau dipakai sebagai cadangan): sampai 2 kali total,
+  jeda 1 detik.
+
+Ini semua terjadi **di server**, tidak terlihat oleh guru — mereka cuma melihat
+proses berjalan sedikit lebih lama dari biasanya (pesan loading di aplikasi akan
+berganti jadi "Masih diproses, mohon tunggu sebentar lagi…" kalau sampai di
+tahap ini). Retry ini **tidak** dilakukan untuk kegagalan yang bukan soal
+sementara — misalnya konten diblokir filter keamanan atau naskah terlalu
+panjang — karena mencoba ulang tidak akan mengubah hasilnya, cuma membuat
+guru menunggu lebih lama untuk pesan error yang sama.
+
 ## Fitur Cadangan Otomatis (Groq)
 
 Kalau Gemini gagal karena masalah **sementara di sisi Google** — kuota gratis penuh,

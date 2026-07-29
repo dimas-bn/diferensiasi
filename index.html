@@ -624,8 +624,9 @@
     if(teksInput.value.trim().length<20){teksInput.focus();showToast('Teks narasi masih terlalu pendek');return}
 
     startLoadingUI();
-    setTimeout(function(){setLoadingMsg('AI sedang membaca naskah…')},700);
-    setTimeout(function(){setLoadingMsg('Menyusun 3 rancangan…')},2200);
+    setTimeout(function(){setLoadingMsg('AI sedang membaca naskah…');progressFill.style.width='35%';},700);
+    setTimeout(function(){setLoadingMsg('Menyusun 3 rancangan…');progressFill.style.width='60%';},2200);
+    setTimeout(function(){setLoadingMsg('Masih diproses, mohon tunggu sebentar lagi…');progressFill.style.width='80%';},9000);
 
     panggilAI(selKelas.value, inpMapel.value.trim(), inpJudul.value.trim(), teksInput.value.trim())
       .then(function(hasil){
