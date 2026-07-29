@@ -104,7 +104,39 @@ sering mengganti/mempensiunkan model), dua pilihan tanpa mengubah banyak kode:
 > tersedia, jadi kemungkinan besar tidak akan mengalami error 404 "model tidak
 > tersedia" lagi di kemudian hari.
 
-## Catatan Privasi
+## Fitur PWA (Progressive Web App)
+
+Aplikasi ini sekarang bisa **dipasang** seperti aplikasi asli di HP/laptop — muncul
+ikon di layar utama, terbuka tanpa address bar browser, dan tampilannya (bukan
+fitur generate-nya) tetap muncul walau sinyal terputus sebentar.
+
+**File yang menjalankan ini:**
+- `manifest.json` — identitas aplikasi (nama, warna, ikon) untuk layar "pasang aplikasi".
+- `sw.js` — service worker yang menyimpan salinan tampilan (app shell) di perangkat.
+- `icons/` — ikon di beberapa ukuran, termasuk versi "maskable" untuk ikon Android.
+
+**Yang PENTING dipahami:** ini **bukan** membuat fitur generate bisa offline (itu
+tetap wajib online, seperti dibahas sebelumnya — butuh Gemini di server). Yang
+di-cache cuma tampilannya saja. Service worker sengaja ditulis supaya permintaan ke
+`/api/generate` **selalu** lewat jaringan langsung, tidak pernah diambil dari cache —
+jadi tidak ada risiko guru mendapat jawaban lama/basi karena dikira dari cache.
+
+**Cara mengujinya setelah deploy:**
+1. Buka situsnya di Chrome (Android) atau Safari (iOS/desktop Chrome juga bisa).
+2. Di Android/desktop Chrome: akan muncul tombol **"Pasang sebagai Aplikasi"** di
+   pojok kanan atas halaman (kalau browser mendeteksi aplikasi ini layak dipasang).
+3. Di iOS Safari: tombol itu tidak akan muncul (keterbatasan Apple, tidak menyediakan
+   event ini) — pengguna iPhone/iPad perlu memasang manual lewat menu **Share → Add
+   to Home Screen**. Tampilannya tetap akan memakai ikon dan tema yang sama.
+4. Setelah dipasang, coba matikan wifi/data sebentar lalu buka lagi aplikasinya dari
+   ikon di layar utama — tampilan (Panel A & B, tombol, dsb.) seharusnya tetap muncul,
+   walau tombol proses akan gagal karena memang butuh internet.
+
+**Kalau nanti mengganti isi `index.html`** dan ingin salinan lama di perangkat
+pengguna langsung diperbarui, naikkan angka versi di `sw.js` (`CACHE_NAME =
+'diferensiasi-shell-v1'` → `'...-v2'`, dst.) — ini memaksa service worker membuang
+cache lama dan mengambil versi baru.
+
 
 Di tingkatan gratis, Google berhak menggunakan teks yang dikirim (prompt) untuk
 melatih/meningkatkan model mereka — ini beda dengan tingkatan berbayar yang datanya

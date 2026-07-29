@@ -5,6 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Diferensiasi — Satu Naskah, Tiga Rancangan Bacaan</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23103A63'/%3E%3Cpath d='M50 12 L86 82 L14 82 Z' fill='none' stroke='%23FF6B4A' stroke-width='4'/%3E%3Cline x1='50' y1='12' x2='50' y2='82' stroke='%23FF6B4A' stroke-width='2'/%3E%3C/svg%3E">
+
+<!-- PWA: bisa dipasang seperti aplikasi asli di HP/laptop -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0A1B30">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Diferensiasi">
+<meta name="mobile-web-app-capable" content="yes">
 <style>
   :root{
     --navy-900:#0A1B30; --navy-800:#0F2545; --navy-700:#153761; --navy-600:#1D4B82;
@@ -61,6 +70,7 @@
     display:block;margin-top:5px;font-family:var(--font-serif);font-style:italic;
     font-size:14px;color:var(--paper-dim)
   }
+  .topbar-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
   .status-chip{
     display:inline-flex;align-items:center;gap:8px;
     font-family:var(--font-mono);font-size:11px;font-weight:700;letter-spacing:.06em;
@@ -71,6 +81,15 @@
   .status-chip .dot{width:7px;height:7px;border-radius:50%;background:var(--lvl3);flex:0 0 auto;
     animation:pulse 1.8s var(--ease) infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+  .btn-install{display:inline-flex;align-items:center;gap:7px;cursor:pointer;
+    font-family:var(--font-mono);font-size:11px;font-weight:700;letter-spacing:.05em;
+    color:#221206;background:var(--lvl2);border:1.5px solid var(--lvl2);
+    padding:7px 12px;border-radius:var(--radius);text-transform:uppercase;
+    transition:background .15s,transform .12s}
+  .btn-install:hover{background:#FFD57A}
+  .btn-install:active{transform:scale(.97)}
+  .btn-install svg{width:13px;height:13px}
 
   /* ---------- Layout ---------- */
   .grid{display:grid;grid-template-columns:1fr 1.18fr;gap:22px;align-items:start}
@@ -292,7 +311,13 @@
         <span>Satu naskah sumber, tiga rancangan bacaan</span>
       </div>
     </div>
-    <div class="status-chip"><span class="dot"></span> Perlu internet saat membuat</div>
+    <div class="topbar-right">
+      <button class="btn-install" id="btnInstall" type="button" style="display:none">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+        Pasang sebagai Aplikasi
+      </button>
+      <div class="status-chip"><span class="dot"></span> Perlu internet saat membuat</div>
+    </div>
   </header>
 
   <div class="grid">
@@ -658,6 +683,38 @@
   }
 
   $('btnPrint').addEventListener('click',function(){window.print()});
+
+  // ---------- PWA: registrasi service worker ----------
+  if('serviceWorker' in navigator){
+    window.addEventListener('load',function(){
+      navigator.serviceWorker.register('/sw.js').catch(function(){
+        // Diam-diam gagal (mis. browser lama) — aplikasi tetap jalan normal tanpa PWA.
+      });
+    });
+  }
+
+  // ---------- PWA: tombol "Pasang sebagai Aplikasi" ----------
+  var btnInstall=$('btnInstall');
+  var deferredInstallPrompt=null;
+
+  window.addEventListener('beforeinstallprompt', function(e){
+    e.preventDefault();
+    deferredInstallPrompt=e;
+    btnInstall.style.display='inline-flex';
+  });
+
+  btnInstall.addEventListener('click', function(){
+    if(!deferredInstallPrompt) return;
+    btnInstall.style.display='none';
+    deferredInstallPrompt.prompt();
+    deferredInstallPrompt.finally && deferredInstallPrompt.finally(function(){ deferredInstallPrompt=null; });
+    deferredInstallPrompt.userChoice.then(function(){ deferredInstallPrompt=null; });
+  });
+
+  window.addEventListener('appinstalled', function(){
+    btnInstall.style.display='none';
+    showToast('Aplikasi berhasil dipasang di perangkat ini');
+  });
 
   updateCount();
 })();
