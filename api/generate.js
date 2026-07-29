@@ -1,15 +1,21 @@
 // api/generate.js
-// Vercel Serverless Function — menjembatani frontend ke Google Gemini API (tingkatan gratis).
-// API key TIDAK PERNAH dikirim ke browser; disimpan sebagai Environment Variable
-// bernama GEMINI_API_KEY di dashboard Vercel (Project Settings → Environment Variables).
-// Dapatkan API key gratis di https://aistudio.google.com/apikey (tanpa kartu kredit).
+// Vercel Serverless Function — menjembatani frontend ke AI (Gemini utama, Groq cadangan).
+// API key TIDAK PERNAH dikirim ke browser; disimpan sebagai Environment Variables di
+// dashboard Vercel (Project Settings → Environment Variables):
+//   - GEMINI_API_KEY (wajib)  — https://aistudio.google.com/apikey (tanpa kartu kredit)
+//   - GROQ_API_KEY   (opsional, untuk fitur cadangan otomatis) — https://console.groq.com/keys
 
-// Model: gemini-flash-latest — alias resmi Google yang OTOMATIS diarahkan ke
-// model Flash terbaru yang masih tersedia untuk tingkatan gratis. Sengaja pakai
-// alias ini (bukan versi statis seperti 'gemini-2.5-flash') supaya kode ini tidak
-// perlu diubah lagi setiap kali Google memensiunkan versi model tertentu.
+// Model Gemini: alias resmi Google, otomatis diarahkan ke versi Flash terbaru yang
+// masih tersedia untuk tingkatan gratis — supaya kode ini tidak perlu diubah lagi
+// setiap kali Google memensiunkan versi model tertentu.
 const GEMINI_MODEL = 'gemini-flash-latest';
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL + ':generateContent';
+
+// Model cadangan di Groq: Llama 3.3 70B — kualitas setara model besar, jauh lebih cepat,
+// gratis tanpa kartu kredit. Dipakai HANYA kalau Gemini gagal karena masalah sementara
+// di sisi Google (kuota habis / server bermasalah / model dipensiunkan).
+const GROQ_MODEL = 'llama-3.3-70b-versatile';
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 const SYSTEM_PROMPT = [
   'Kamu adalah asisten guru Indonesia yang ahli membuat materi ajar berdiferensiasi sesuai Kurikulum Merdeka.',
@@ -24,7 +30,10 @@ const SYSTEM_PROMPT = [
   '',
   'Jaga agar total ketiga versi ringkas.',
   '',
-  'ATURAN FORMAT TEKS: Tulis setiap versi sebagai teks polos (plain text) karena hasilnya akan dicetak langsung. JANGAN gunakan markdown sama sekali — tidak ada tanda bintang (**tebal**), tidak ada tanda pagar (# judul), tidak ada bullet list dengan tanda -. Pisahkan setiap paragraf dengan DUA baris kosong (\\n\\n) di dalam string.'
+  'ATURAN FORMAT TEKS: Tulis setiap versi sebagai teks polos (plain text) karena hasilnya akan dicetak langsung. JANGAN gunakan markdown sama sekali — tidak ada tanda bintang (**tebal**), tidak ada tanda pagar (# judul), tidak ada bullet list dengan tanda -. Pisahkan setiap paragraf dengan DUA baris kosong (\\n\\n) di dalam string.',
+  '',
+  'Jawab HANYA dengan JSON murni, tanpa teks pembuka, tanpa markdown code fence, persis format ini:',
+  '{"sederhana":"...","standar":"...","pengayaan":"..."}'
 ].join('\n');
 
 const FASE_MAP = {
@@ -56,8 +65,6 @@ function buildUserPrompt(kelas, mapel, judul, teks) {
     'Teks narasi asli:\n' + teks;
 }
 
-// Skema ini memaksa Gemini mengembalikan JSON valid dengan struktur ini persis —
-// tidak perlu lagi parsing manual / jaga-jaga markdown code fence.
 const RESPONSE_SCHEMA = {
   type: 'OBJECT',
   properties: {
@@ -68,15 +75,157 @@ const RESPONSE_SCHEMA = {
   required: ['sederhana', 'standar', 'pengayaan']
 };
 
+function isHasilLengkap(hasil) {
+  return !!(hasil && hasil.sederhana && hasil.standar && hasil.pengayaan);
+}
+
+// ---------------------------------------------------------------------------
+// Percobaan #1: Gemini (utama)
+// Mengembalikan { ok:true, hasil } kalau berhasil, atau
+// { ok:false, retryable, status, error } kalau gagal.
+// `retryable` = true berarti wajar dicoba ulang lewat penyedia lain (masalah
+// sementara di sisi Google) — bukan bug di permintaan kita atau blokir konten.
+// ---------------------------------------------------------------------------
+async function cobaGemini(kelas, mapel, judul, teks) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    return { ok: false, retryable: true, status: 500, error: 'GEMINI_API_KEY belum diatur.' };
+  }
+
+  let geminiRes, data;
+  try {
+    geminiRes = await fetch(GEMINI_URL + '?key=' + apiKey, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: buildUserPrompt(kelas, mapel, judul, teks) }] }],
+        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        generationConfig: {
+          temperature: 0.6,
+          maxOutputTokens: 8192,
+          responseMimeType: 'application/json',
+          responseSchema: RESPONSE_SCHEMA
+        }
+      })
+    });
+    data = await geminiRes.json();
+  } catch (err) {
+    return { ok: false, retryable: true, status: 500, error: 'Gagal menghubungi Gemini: ' + (err.message || err) };
+  }
+
+  if (!geminiRes.ok) {
+    if (geminiRes.status === 429) {
+      return { ok: false, retryable: true, status: 429, error: 'Kuota gratis Gemini sedang penuh.' };
+    }
+    if (geminiRes.status === 404) {
+      return { ok: false, retryable: true, status: 404, error: 'Model Gemini yang dipakai sudah tidak tersedia lagi dari Google.' };
+    }
+    if (geminiRes.status === 400) {
+      return { ok: false, retryable: false, status: 400, error: 'Permintaan ditolak Google (format tidak didukung model saat ini). Detail: ' + JSON.stringify(data) };
+    }
+    if (geminiRes.status >= 500) {
+      return { ok: false, retryable: true, status: geminiRes.status, error: 'Server Gemini sedang bermasalah.' };
+    }
+    return { ok: false, retryable: false, status: geminiRes.status, error: 'Gemini API error: ' + JSON.stringify(data) };
+  }
+
+  const candidate = data && data.candidates && data.candidates[0];
+
+  const blockReason = data && data.promptFeedback && data.promptFeedback.blockReason;
+  if (blockReason) {
+    // Ini keputusan filter keamanan, BUKAN masalah sementara — sengaja tidak retryable,
+    // supaya tidak "loncat" ke penyedia lain hanya untuk mengakali filter konten.
+    return { ok: false, retryable: false, status: 422, error: 'Naskah ini tidak bisa diproses karena tersaring oleh filter keamanan otomatis Google (kode: ' + blockReason + '). Coba tulis ulang bagian yang mungkin dianggap sensitif, misalnya kalimat yang menyinggung kekerasan, isu tubuh manusia, atau topik dewasa — meski konteksnya materi pelajaran yang sah.' };
+  }
+  if (candidate && candidate.finishReason === 'SAFETY') {
+    return { ok: false, retryable: false, status: 422, error: 'Sebagian jawaban AI tersaring oleh filter keamanan otomatis Google. Coba sesuaikan redaksi naskah sumber (biasanya dipicu oleh topik kekerasan, isu tubuh manusia, atau tema dewasa), lalu proses lagi.' };
+  }
+
+  const text = candidate && candidate.content && candidate.content.parts && candidate.content.parts[0] && candidate.content.parts[0].text;
+  if (!text) {
+    return { ok: false, retryable: true, status: 502, error: 'Jawaban Gemini kosong tanpa keterangan penyebab yang jelas.' };
+  }
+  if (candidate.finishReason === 'MAX_TOKENS') {
+    // Bukan masalah penyedia, jadi tidak perlu coba penyedia lain — pesannya spesifik ke pengguna.
+    return { ok: false, retryable: false, status: 502, error: 'Naskah sumber terlalu panjang sehingga jawaban AI terpotong. Coba persingkat naskahnya, lalu proses lagi.' };
+  }
+
+  let hasil;
+  try {
+    hasil = JSON.parse(text);
+  } catch (parseErr) {
+    return { ok: false, retryable: true, status: 502, error: 'Jawaban Gemini terpotong atau tidak valid.' };
+  }
+
+  if (!isHasilLengkap(hasil)) {
+    return { ok: false, retryable: true, status: 502, error: 'Jawaban Gemini tidak lengkap (ada level yang hilang).' };
+  }
+
+  return { ok: true, hasil: hasil };
+}
+
+// ---------------------------------------------------------------------------
+// Percobaan #2: Groq (cadangan) — dipanggil HANYA kalau Gemini gagal dengan
+// alasan retryable, dan GROQ_API_KEY sudah dipasang oleh pengelola.
+// ---------------------------------------------------------------------------
+async function cobaGroq(kelas, mapel, judul, teks) {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) {
+    return { ok: false, retryable: false, status: 500, error: 'GROQ_API_KEY belum diatur (fitur cadangan tidak aktif).' };
+  }
+
+  let groqRes, data;
+  try {
+    groqRes = await fetch(GROQ_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + apiKey
+      },
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        temperature: 0.6,
+        max_tokens: 4096,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: buildUserPrompt(kelas, mapel, judul, teks) }
+        ]
+      })
+    });
+    data = await groqRes.json();
+  } catch (err) {
+    return { ok: false, retryable: false, status: 500, error: 'Gagal menghubungi Groq: ' + (err.message || err) };
+  }
+
+  if (!groqRes.ok) {
+    return { ok: false, retryable: false, status: groqRes.status, error: 'Groq API error: ' + JSON.stringify(data) };
+  }
+
+  const text = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+  if (!text) {
+    return { ok: false, retryable: false, status: 502, error: 'Jawaban Groq kosong.' };
+  }
+
+  let hasil;
+  try {
+    const cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+    const start = cleaned.indexOf('{'), end = cleaned.lastIndexOf('}');
+    hasil = JSON.parse(start !== -1 && end !== -1 ? cleaned.slice(start, end + 1) : cleaned);
+  } catch (parseErr) {
+    return { ok: false, retryable: false, status: 502, error: 'Jawaban Groq terpotong atau tidak valid.' };
+  }
+
+  if (!isHasilLengkap(hasil)) {
+    return { ok: false, retryable: false, status: 502, error: 'Jawaban Groq tidak lengkap (ada level yang hilang).' };
+  }
+
+  return { ok: true, hasil: hasil };
+}
+
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' });
-    return;
-  }
-
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    res.status(500).json({ error: 'GEMINI_API_KEY belum diatur di Environment Variables Vercel.' });
     return;
   }
 
@@ -95,88 +244,46 @@ module.exports = async (req, res) => {
     return;
   }
 
-  try {
-    const geminiRes = await fetch(GEMINI_URL + '?key=' + apiKey, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          { role: 'user', parts: [{ text: buildUserPrompt(kelas, mapel, judul, teks) }] }
-        ],
-        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-        generationConfig: {
-          temperature: 0.6,
-          maxOutputTokens: 8192,
-          responseMimeType: 'application/json',
-          responseSchema: RESPONSE_SCHEMA
-        }
-      })
-    });
-
-    const data = await geminiRes.json();
-
-    if (!geminiRes.ok) {
-      // 429 = kena batas kuota gratis (permintaan per menit/hari) — beri pesan yang jelas untuk pengguna.
-      if (geminiRes.status === 429) {
-        res.status(429).json({ error: 'Sedang banyak yang memakai layanan gratis ini. Coba lagi dalam beberapa menit.' });
-        return;
-      }
-      // 404 dari Gemini biasanya berarti nama model sudah tidak berlaku lagi (Google sering mengganti/mempensiunkan model).
-      if (geminiRes.status === 404) {
-        res.status(502).json({ error: 'Model AI yang dipakai sudah tidak tersedia lagi dari Google. Pengelola aplikasi perlu memperbarui GEMINI_MODEL di api/generate.js.' });
-        return;
-      }
-      // 400 biasanya berarti ada parameter permintaan yang tidak/tidak-lagi didukung oleh model ini.
-      if (geminiRes.status === 400) {
-        res.status(502).json({ error: 'Permintaan ditolak Google (format tidak didukung model saat ini). Pengelola aplikasi perlu memeriksa parameter di api/generate.js. Detail: ' + JSON.stringify(data) });
-        return;
-      }
-      res.status(geminiRes.status).json({ error: 'Gemini API error: ' + JSON.stringify(data) });
-      return;
-    }
-
-    const candidate = data && data.candidates && data.candidates[0];
-
-    // Kasus 1: seluruh permintaan ditolak sebelum sempat diproses (mis. input dianggap tidak pantas).
-    const blockReason = data && data.promptFeedback && data.promptFeedback.blockReason;
-    if (blockReason) {
-      res.status(422).json({ error: 'Naskah ini tidak bisa diproses karena tersaring oleh filter keamanan otomatis Google (kode: ' + blockReason + '). Coba tulis ulang bagian yang mungkin dianggap sensitif, misalnya kalimat yang menyinggung kekerasan, isu tubuh manusia, atau topik dewasa — meski konteksnya materi pelajaran yang sah.' });
-      return;
-    }
-
-    // Kasus 2: permintaan diproses tapi jawabannya dipotong/ditolak filter keamanan di tengah jalan.
-    if (candidate && candidate.finishReason === 'SAFETY') {
-      res.status(422).json({ error: 'Sebagian jawaban AI tersaring oleh filter keamanan otomatis Google. Coba sesuaikan redaksi naskah sumber (biasanya dipicu oleh topik kekerasan, isu tubuh manusia, atau tema dewasa), lalu proses lagi.' });
-      return;
-    }
-
-    const text = candidate && candidate.content && candidate.content.parts && candidate.content.parts[0] && candidate.content.parts[0].text;
-
-    if (!text) {
-      res.status(502).json({ error: 'Jawaban AI kosong tanpa keterangan penyebab yang jelas dari Google. Coba proses lagi.' });
-      return;
-    }
-
-    if (candidate.finishReason === 'MAX_TOKENS') {
-      res.status(502).json({ error: 'Naskah sumber terlalu panjang sehingga jawaban AI terpotong. Coba persingkat naskahnya, lalu proses lagi.' });
-      return;
-    }
-
-    let hasil;
-    try {
-      hasil = JSON.parse(text);
-    } catch (parseErr) {
-      res.status(502).json({ error: 'Jawaban AI terpotong atau tidak lengkap. Coba tekan tombol proses sekali lagi, atau persingkat naskah sumbernya.' });
-      return;
-    }
-
-    if (!hasil.sederhana || !hasil.standar || !hasil.pengayaan) {
-      res.status(502).json({ error: 'Jawaban AI tidak lengkap (ada level yang hilang).' });
-      return;
-    }
-
-    res.status(200).json(hasil);
-  } catch (err) {
-    res.status(500).json({ error: err.message || 'Terjadi kesalahan tak terduga di server.' });
+  const gemini = await cobaGemini(kelas, mapel, judul, teks);
+  if (gemini.ok) {
+    res.status(200).json(Object.assign({}, gemini.hasil, { _engine: 'gemini' }));
+    return;
   }
+
+  // Gemini gagal. Kalau alasannya bukan masalah sementara (mis. filter keamanan,
+  // atau naskah terlalu panjang), langsung sampaikan pesannya apa adanya —
+  // mencoba Groq tidak akan mengubah hasil untuk kasus-kasus ini.
+  if (!gemini.retryable) {
+    res.status(gemini.status || 502).json({ error: gemini.error });
+    return;
+  }
+
+  // Gemini gagal karena masalah sementara di sisi Google — diam-diam coba Groq
+  // sebagai cadangan, kalau pengelola sudah memasang GROQ_API_KEY.
+  if (process.env.GROQ_API_KEY) {
+    const groq = await cobaGroq(kelas, mapel, judul, teks);
+    if (groq.ok) {
+      res.status(200).json(Object.assign({}, groq.hasil, { _engine: 'groq' }));
+      return;
+    }
+    // Groq (cadangan) juga gagal — tampilkan pesan Gemini (penyedia utama) yang
+    // biasanya lebih mudah dipahami, karena sudah dipetakan ke pesan ramah pengguna.
+    res.status(gemini.status || 502).json(mapGeminiErrorToUser(gemini));
+    return;
+  }
+
+  // Tidak ada Groq terpasang — tampilkan pesan Gemini yang sudah dipetakan ramah pengguna.
+  res.status(gemini.status || 502).json(mapGeminiErrorToUser(gemini));
 };
+
+// Memetakan status Gemini ke pesan yang sudah dipakai di versi-versi sebelumnya,
+// supaya pengalaman pengguna tetap konsisten kalau memang tidak ada cadangan.
+function mapGeminiErrorToUser(gemini) {
+  if (gemini.status === 429) {
+    return { error: 'Sedang banyak yang memakai layanan gratis ini. Coba lagi dalam beberapa menit.' };
+  }
+  if (gemini.status === 404) {
+    return { error: 'Model AI yang dipakai sudah tidak tersedia lagi dari Google. Pengelola aplikasi perlu memperbarui GEMINI_MODEL di api/generate.js.' };
+  }
+  return { error: gemini.error };
+}
