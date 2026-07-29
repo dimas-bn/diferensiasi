@@ -201,6 +201,8 @@
     cursor:pointer;text-transform:uppercase;transition:border-color .15s,background .15s}
   .btn-print:hover{border-color:var(--lvl3);background:var(--navy-600)}
   .btn-print svg,.btn-copy svg,.label-ok svg{width:13px;height:13px}
+  .label-fallback{font-family:var(--font-mono);font-size:10.5px;font-weight:700;
+    color:var(--paper-dim);letter-spacing:.03em;cursor:help;border-bottom:1px dotted var(--line-strong)}
 
   .tabs{display:flex;gap:5px;background:var(--navy-900);border:1.5px solid var(--line-strong);
     padding:5px;border-radius:var(--radius);margin-bottom:16px}
@@ -409,6 +411,9 @@
           <span class="label-ok">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
             3 versi berhasil dicetak
+          </span>
+          <span class="label-fallback" id="labelFallback" style="display:none" title="Google Gemini sedang tidak bisa diakses, jadi jawaban ini dibuat memakai mesin cadangan (Groq).">
+            ⚡ dibuat via mesin cadangan
           </span>
           <button class="btn-print" id="btnPrint">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
@@ -633,6 +638,7 @@
         renderParagraf('teks-0', hasil.sederhana);
         renderParagraf('teks-1', hasil.standar);
         renderParagraf('teks-2', hasil.pengayaan);
+        $('labelFallback').style.display = (hasil._engine === 'groq') ? 'inline-flex' : 'none';
         stopLoadingUI();
         hero.style.display='none';
         results.classList.add('show');

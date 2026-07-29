@@ -137,6 +137,50 @@ pengguna langsung diperbarui, naikkan angka versi di `sw.js` (`CACHE_NAME =
 'diferensiasi-shell-v1'` → `'...-v2'`, dst.) — ini memaksa service worker membuang
 cache lama dan mengambil versi baru.
 
+## Fitur Cadangan Otomatis (Groq)
+
+Kalau Gemini gagal karena masalah **sementara di sisi Google** — kuota gratis penuh,
+server bermasalah, atau model dipensiunkan — aplikasi ini bisa otomatis dan diam-diam
+mencoba ulang lewat **Groq** (penyedia lain, juga gratis tanpa kartu kredit, dan
+sangat cepat) sebagai cadangan. Guru tidak akan melihat proses gantinya, cuma hasil
+tetap muncul seperti biasa.
+
+**Ini fitur opsional** — kalau Anda tidak memasang API key Groq, aplikasi tetap
+berjalan normal seperti sebelumnya (langsung menampilkan pesan error kalau Gemini
+gagal), tidak ada yang rusak.
+
+### Cara mengaktifkannya
+
+1. Buka [console.groq.com/keys](https://console.groq.com/keys), daftar dengan email
+   (tanpa kartu kredit), buat API key baru, salin nilainya.
+2. Di dashboard Vercel project Anda → **Settings → Environment Variables**, tambahkan:
+   - Name: `GROQ_API_KEY`
+   - Value: *(tempel API key dari langkah 1)*
+3. Redeploy project (buka tab **Deployments** → titik tiga pada deployment terbaru
+   → **Redeploy**) supaya environment variable baru terbaca.
+
+### Kapan cadangan ini dipakai, kapan tidak
+
+Aplikasi **tidak asal loncat** ke Groq setiap kali Gemini gagal — hanya untuk
+penyebab yang wajar dicoba ulang lewat penyedia lain:
+
+| Penyebab kegagalan Gemini | Coba Groq? | Kenapa |
+|---|---|---|
+| Kuota gratis penuh (429) | ✅ Ya | Murni batasan sementara, bukan soal kualitas/isi |
+| Server Gemini bermasalah (5xx) | ✅ Ya | Masalah sementara di sisi Google |
+| Model dipensiunkan (404) | ✅ Ya | Masalah konfigurasi sementara, bukan soal naskah |
+| Naskah diblokir filter keamanan | ❌ Tidak | Ini keputusan konten yang disengaja, bukan gangguan teknis — sengaja tidak "diakali" lewat penyedia lain |
+| Naskah terlalu panjang (jawaban terpotong) | ❌ Tidak | Ganti penyedia tidak akan menyelesaikan ini; guru perlu memperpendek naskah |
+| Parameter permintaan ditolak (400) | ❌ Tidak | Biasanya bug di kode, bukan soal ketersediaan Gemini |
+
+Kalau hasil dibuat lewat Groq, akan muncul catatan kecil "⚡ dibuat via mesin
+cadangan" di sebelah label sukses — transparan ke guru, tapi tidak mengganggu.
+
+Kualitas hasil dari Groq (model Llama 3.3 70B) umumnya cukup baik, walau gaya
+tulisannya bisa sedikit berbeda nuansa dibanding Gemini — wajar karena model
+yang berbeda.
+
+## Catatan Privasi
 
 Di tingkatan gratis, Google berhak menggunakan teks yang dikirim (prompt) untuk
 melatih/meningkatkan model mereka — ini beda dengan tingkatan berbayar yang datanya
